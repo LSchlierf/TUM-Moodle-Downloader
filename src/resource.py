@@ -31,7 +31,10 @@ class Resource:
 
     @staticmethod
     def get_resource_name(resource_div):
-        return resource_div.find('span', class_='instancename').contents[0].strip()
+        name = resource_div.find('span', class_='instancename')
+        if name:
+            return name.contents[0].strip()
+        return resource_div.find('span', class_='fp-filename').contents[0].strip()
 
     @staticmethod
     def get_resource_url(resource_div):
@@ -50,7 +53,7 @@ class Resource:
         resource_type = ("" + resource_type_span.contents[0]).strip()
         if ['Datei', 'File'].__contains__(resource_type):
             return 'file'
-        elif ['Ordner', 'Folder'].__contains__(resource_type):
+        elif ['Ordner', 'Folder', 'Verzeichnis'].__contains__(resource_type):
             return 'folder'
         elif ['Aufgabe', 'Assignment'].__contains__(resource_type):
             return 'assignment'
@@ -74,6 +77,11 @@ class Resource:
         # - 'Content-Type'
 
         file_url = file_head.url
+        if "/view.php" in file_url:
+            file_head = globals.global_session.head(url + '&redirect=1', allow_redirects=True)
+            file_url = file_head.url
+            if "/view.php" in file_url:
+                return
         # Decode encoded URL (for more info see: https://www.urldecoder.io/python/) to get rid of "percent encoding"
         # (as in https://www.moodle.tum.de/pluginfile.php/1702929/mod_resource/content/1/%C3%9Cbung%202_L%C3%B6sung.pdf)
         decoded_file_url = urllib.parse.unquote(file_url)
@@ -104,46 +112,67 @@ class Resource:
                 url_date = parsedate(url_time).astimezone()
                 file_time = datetime.datetime.fromtimestamp(os.path.getmtime(destination_path)).astimezone()
                 if url_date <= file_time:
-                    print(f"Skipping file \u001B[35m{filename}\u001B[0m because it is already the latest version")
+                    print(f"\u001B[33mSkipping\u001B[0m downloaded file: {filename}")
                     return
 
-        print(f'Downloading file \u001B[35m{filename}\u001B[0m')
-        file = globals.global_session.get(url)
-        print('Done downloading.')
-
-        print(f'Saving file \u001B[35m{filename}\u001B[0m')
+        print(f'\u001B[32mDownloading\u001B[0m file:         {filename}')
+        file = globals.global_session.get(file_url)
         with open(destination_path, 'wb') as f:
             f.write(file.content)
-        print('Done. Saved to: ' + destination_path)
+        print('Done. Saved to:           ' + destination_path)
 
     @staticmethod
     def _download_folder(file_url, destination_path, update_handling):
-        print('Downloading folder')
         folder_soup = BeautifulSoup(globals.global_session.get(file_url).content, 'html.parser')  # Get folder page
-        dir_name = folder_soup.find('div', role='main').find('h2').contents[0]  # Find folder title
+        dir_name = folder_soup.find('div', role='main').find('h2')  # Find folder title
+        if dir_name:
+            dir_name = dir_name.contents[0]
+        else:
+            dir_name = folder_soup.find('div', class_='page-header-headings').find('h1', class_='h2').contents[0].strip()
+        print(f'Downloading folder: \u001B[34m{dir_name}\u001B[0m')
         folder_path = os.path.join(destination_path, dir_name)
         if not os.path.exists(folder_path):
-            print(f'Creating directory: {dir_name} in {destination_path}')
+            print(f'\u001B[32mCreating\u001B[0m directory: {dir_name}')
             os.mkdir(folder_path)
+        files = folder_soup.find_all('span', class_='fp-filename')  # Finds all files in folder page
+        for file in files:
+            if len(file.contents) < 3: # <3
+                continue
+            file_url = file.contents[1]['href']
+            print('\t', end='')
+            Resource._download_file(file_url, folder_path, update_handling)
+
+    @staticmethod
+    def _download_folder_page(file_url, destination_path, update_handling):
+        folder_soup = BeautifulSoup(globals.global_session.get(file_url).content, 'html.parser')  # Get folder page
         files = folder_soup.find_all('span', class_='fp-filename')  # Finds all files in folder page
         for file in files:
             if len(file.contents) < 1:
                 continue
             file_url = file.parent['href']
-            Resource._download_file(file_url, folder_path, update_handling)
+            Resource._download_file(file_url, destination_path, update_handling)
 
     @staticmethod
     def _download_assignment(file_url, destination_path, update_handling):
-        print('Extracting files from assignment')
+        # print('Extracting files from assignment')
         # Get assignment page
         assignment_soup = BeautifulSoup(globals.global_session.get(file_url).content, 'html.parser')
-        file_anchors = assignment_soup.find('div', id='intro').find_all('div', class_='fileuploadsubmission')
+        intro = assignment_soup.find('div', id='intro')
+        if intro is None:
+            # print('No file found')
+            return
+        file_anchors = intro.findAll('div', class_='fileuploadsubmission')
         if len(file_anchors) == 0:
-            print('No file found')
+            # print('No file found')
             return
         for file_anchor in file_anchors:
             file_url = file_anchor.find('a')['href']
             Resource._download_file(file_url, destination_path, update_handling)
+
+    @staticmethod
+    def _is_file(url):
+        file_head = globals.global_session.head(url, allow_redirects=True)
+        return '.pdf' in file_head.url
 
     @background
     def download_parallel(self, destination_dir, update_handling):
@@ -160,14 +189,16 @@ class Resource:
                 return
         # TODO: check, check if resource is actually available for the user
         #  (see: https://github.com/NewLordVile/tum-moodle-downloader/issues/11)
-        print(f"Attempting to download resource \u001B[35m{self.name}\u001B[0m with type \u001B[34;1m{self.type}" +
-              "\u001B[0m")
         if self.type == 'file' or self.type == 'url':
             Resource._download_file(self.resource_url, destination_dir, update_handling)
         elif self.type == 'folder':
             Resource._download_folder(self.resource_url, destination_dir, update_handling)
         elif self.type == 'assignment':
             Resource._download_assignment(self.resource_url, destination_dir, update_handling)
+        elif Resource._is_file(self.resource_url):
+            try:
+                Resource._download_file(self.resource_url, destination_dir, update_handling)
+            except Exception:
+                pass
         else:
-            print(f"Cannot download resource \u001B[35m{self.name}\u001B[0m of type \u001B[34;1m{self.type}\u001B[0m" +
-                  f" is not supported!")
+            Resource._download_folder_page(self.resource_url, destination_dir, update_handling)

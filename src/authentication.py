@@ -1,13 +1,15 @@
+from typing import Tuple
 import requests
 from bs4 import BeautifulSoup
 
-AUTH_URL = 'https://www.moodle.tum.de/Shibboleth.sso/Login?providerId=https://tumidp.lrz.de/idp/shibboleth&target' \
-           '=https://www.moodle.tum.de/auth/shibboleth/index.php'
+verify = True
+
+AUTH_URL = 'https://www.moodle.tum.de/Shibboleth.sso/Login?providerId=https://tumidp.lrz.de/idp/shibboleth&target=https://www.moodle.tum.de/auth/shibboleth/index.php'
 IDP_BASE_URL = 'https://login.tum.de'
 
 proxies = {
-    # 'http': 'localhost:8080',
-    # 'https': 'localhost:8080',
+    # 'http': '127.0.0.1:8080',
+    # 'https': '127.0.0.1:8080',
 }
 
 base_headers = {
@@ -21,7 +23,7 @@ additional_headers = {
 }
 
 
-def _find_sso_data(soup) -> (str, dict) or None:
+def _find_sso_data(soup) -> Tuple[str, dict] or None:
     form = soup.find('form')
     action_url = form.get('action')
     form_div = form.find('div')
@@ -42,7 +44,7 @@ def start_session(username, password) -> requests.Session or None:
     response = session.get(
         AUTH_URL,
         proxies=proxies,
-        verify=True,
+        verify=verify,
         allow_redirects=False
     )
     if response.status_code != 302:
@@ -56,7 +58,8 @@ def start_session(username, password) -> requests.Session or None:
 
     response = session.get(
         saml_url,
-        verify=True,
+        proxies=proxies,
+        verify=verify,
         allow_redirects=False
     )
 
@@ -69,12 +72,12 @@ def start_session(username, password) -> requests.Session or None:
         f'{IDP_BASE_URL}{sso_url}',
         headers=additional_headers,
         proxies=proxies,
-        verify=True,
+        verify=verify
     )
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    csrf_token = soup.find("input").attrs['value']
-
+    csrf_token = soup.find("input", attrs={'name': 'csrf_token'}).attrs['value']
+    
     response = session.post(
         f'{IDP_BASE_URL}{sso_url}',
         headers=additional_headers,
@@ -86,7 +89,7 @@ def start_session(username, password) -> requests.Session or None:
             '_eventId_proceed': '',
         },
         proxies=proxies,
-        verify=True,
+        verify=verify
     )
     if response.status_code != 200:
         print(f"Error while starting session: request to SSO url failed")
@@ -94,15 +97,51 @@ def start_session(username, password) -> requests.Session or None:
 
     soup = BeautifulSoup(response.text, 'html.parser')
     action_url, sso_data = _find_sso_data(soup)
+    sso_data['j_username'] = username
+    sso_data['j_password'] = password
     try:
         response = session.post(
-            f'{action_url}',
+            f'{IDP_BASE_URL}{action_url}',
+            proxies=proxies,
             headers=additional_headers,
+            verify=verify,
             data=sso_data
         )
     except requests.exceptions.MissingSchema:
         print('Error while authenticating. Check credentials.')
         return None
+    
+    soup = BeautifulSoup(response.text, 'html.parser')
+    action_url = soup.find('form').attrs['action']
+    csrf_token = soup.find("input", attrs={'name': 'csrf_token'}).attrs['value']
+    
+    newData = {
+        "csrf_token": csrf_token,
+        "j_username": username,
+        "j_password": password,
+        "donotcache": '1',
+        "_eventId_proceed": '',
+    }
+    
+    response = session.post(
+        f'{IDP_BASE_URL}{action_url}',
+        headers=additional_headers,
+        data=newData,
+        proxies=proxies,
+        verify=verify,
+    )
+    
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    action_url, sso_data = _find_sso_data(soup)
+    
+    response = session.post(
+        f'{action_url}',
+        headers=additional_headers,
+        data=sso_data,
+        proxies=proxies,
+        verify=verify
+    )
 
     if response.status_code != 200:
         print(f"Error while starting session: login failed")

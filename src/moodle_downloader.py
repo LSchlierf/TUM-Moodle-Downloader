@@ -4,55 +4,6 @@ import re
 import course_retrieval
 import globals
 
-
-def list_resources(args):
-    try:
-        course_name = args.course
-        if course_name == "*":
-            # List the names of all available courses
-            course_retrieval.list_courses()
-        else:
-            # List all available resources within the specified course
-            course = course_retrieval.get_course(course_name)
-            if course is not None:
-                if args.files:
-                    course.list_all_files()
-                else:
-                    course.list_all_resources()
-    except:
-        # TODO: add logging and log exception info (traceback) to a file
-        print("Could not list resources due to an internal error.")
-
-
-def download(args):
-    try:
-        course_name = args.course
-        resource_pattern = args.file_pattern
-        destination_path = args.destination
-
-        if destination_path is None:
-            if resource_pattern is None:
-                resource_pattern = ".*"
-            if course_name is None:
-                course_name = ".*"
-            download_via_config(course_name, resource_pattern)
-        else:
-            course = course_retrieval.get_course(course_name)
-            resource_names = course.get_matching_resource_names(resource_pattern)
-
-            parallel = False
-            with open(globals.DOWNLOAD_CONFIG_PATH, mode='r', encoding='utf-8') as download_config_file:
-                config_data = json.load(download_config_file)[0]
-                parallel = config_data.get('parallel_downloads', bool)
-                if parallel:
-                    print("\u001B[33mParallel downloads active! This leads to unsorted download logging\u001B[0m")
-            for resource_name in resource_names:
-                course.download_resource(resource_name, destination_path, parallel, update_handling="update")
-    except:
-        # TODO: add logging and log exception info (traceback) to a file
-        print("Could not download resources due to an internal error.")
-
-
 def download_via_config(req_course_name=".*", req_file_pattern=".*"):
     print("Downloading via download config")
     try:
@@ -80,6 +31,7 @@ def download_via_config(req_course_name=".*", req_file_pattern=".*"):
             if course is None:
                 continue
 
+            print(f"\nDownloading in course:    \u001B[34m{course_name}\u001B[0m\n")
             resource_names = course.get_matching_resource_names()
             for resource_name in resource_names:
                 if not re.match(req_file_pattern, resource_name):
@@ -91,7 +43,7 @@ def download_via_config(req_course_name=".*", req_file_pattern=".*"):
                         update_handling = rule.get('update_handling', "replace")
                         course.download_resource(resource_name, destination, parallel, update_handling)
                         break
-        print("Done downloading via download config.")
+        print("\n\u001B[32mDone downloading via download config.\u001B[0m")
     except Exception as inst:
         # TODO: add logging and log exception info (traceback) to a file
         print("Could not download via config due to an internal error.")

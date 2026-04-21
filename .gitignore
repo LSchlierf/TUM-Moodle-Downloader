@@ -2,3 +2,6 @@ credentials.json
 .idea
 *.pdf
 __pycache__
+.vscode
+src/course_config*
+

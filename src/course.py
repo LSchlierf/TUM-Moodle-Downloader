@@ -1,11 +1,11 @@
 import json
 import re
+import os
 
 from bs4 import BeautifulSoup
 
 import globals
 from resource import Resource
-
 
 class Course:
     def __init__(self, course_name, course_url):
@@ -48,6 +48,22 @@ class Course:
             for resource_div in section_resources:
                 resource = Resource(resource_div, is_recent=(section == latest_week_section))
                 resources[resource.name] = resource
+                
+        folders = self.soup.find_all('div', class_='modtype_folder')
+        for folder in folders:
+            resource = Resource(folder, False)
+            resources[resource.name] = resource
+        # folders = self.soup.find_all('div', class_='modtype_folder')
+        # for folder in folders:
+        #     folder_name = folder.find('span', class_='instancename').contents[0].strip()
+        #     link = folder.find('a').get('href', None)
+        #     page = BeautifulSoup(globals.global_session.get(link).content, 'html.parser')
+        #     # print(page)
+        #     items = page.find_all('span', class_='fp-filename-icon')
+        #     for item in items:
+        #         resource = Resource(item, False)
+        #         resource.name = folder_name + os.sep + resource.name
+        #         resources[resource.name] = resource
 
         return resources
 
@@ -58,8 +74,7 @@ class Course:
             Currently supports files, folders and assignments.
         """
         try:
-            print('Searching for resource ' + f'\u001B[35m{resource_name}\u001B[0m' + ' in course ' +
-                  f'\u001B[36m{self.name}\u001B[0m')
+            # print('Searching for resource ' + f'\u001B[35m{resource_name}\u001B[0m' + ' in course ' + f'\u001B[36m{self.name}\u001B[0m')
             resource = self.resources.get(resource_name, None)
             if resource is None:
                 print(f'No resource matching \u001B[35m{resource_name}\u001B[0m found')
