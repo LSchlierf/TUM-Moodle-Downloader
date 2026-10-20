@@ -53,6 +53,13 @@ class Course:
         for folder in folders:
             resource = Resource(folder, False)
             resources[resource.name] = resource
+            
+        # Extract resources from pdf links
+        links = self.soup.find_all('a')
+        for l in links:
+            if ".pdf" in l["href"]:
+                resource = Resource(l, False)
+                resources[resource.name] = resource
         # folders = self.soup.find_all('div', class_='modtype_folder')
         # for folder in folders:
         #     folder_name = folder.find('span', class_='instancename').contents[0].strip()

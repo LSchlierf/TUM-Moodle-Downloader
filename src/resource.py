@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import os
 import urllib
+import urllib.parse
 
 from bs4 import BeautifulSoup
 from dateutil.parser import parse as parsedate
@@ -34,10 +35,15 @@ class Resource:
         name = resource_div.find('span', class_='instancename')
         if name:
             return name.contents[0].strip()
-        return resource_div.find('span', class_='fp-filename').contents[0].strip()
+        name = resource_div.find('span', class_='fp-filename')
+        if name:
+            return name.contents[0].strip()
+        return resource_div.string.strip()
 
     @staticmethod
     def get_resource_url(resource_div):
+        if resource_div.name == "a":
+            return resource_div["href"]
         resource_url_anchor = resource_div.find('a')
         if resource_url_anchor is None:
             return None
@@ -90,6 +96,8 @@ class Resource:
         filename = os.path.basename(decoded_file_url)
         if '?forcedownload=1' in filename:
             filename = filename.replace('?forcedownload=1', '')
+        if '?time=' in filename:
+            filename = filename[:filename.find('?time=')]
 
         destination_path = os.path.join(destination_dir, filename)
 
